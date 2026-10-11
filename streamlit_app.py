@@ -59,7 +59,7 @@ else:
         # Geminiから回答をストリーミング取得
         try:
             stream = client.models.generate_content_stream(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=contents,
             )
 
