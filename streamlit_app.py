@@ -7,76 +7,74 @@ st.write(
     "This is a simple chatbot powered by Google's Gemini API."
 )
 
-# Gemini APIキーの入力
-gemini_api_key = st.text_input(
-    "Gemini API Key",
-    type="password"
-)
+# st.secrets から Gemini API キーを取得
+try:
+    gemini_api_key = st.secrets["GEMINI_API_KEY"]
+except (KeyError, FileNotFoundError):
+    st.error(
+        "Gemini APIキーが設定されていません。"
+        "secrets.toml を確認してください。"
+    )
+    st.stop()
 
-if not gemini_api_key:
-    st.info(
-        "Gemini APIキーを入力してください。",
-        icon="🗝️"
+# Gemini クライアントを作成
+client = genai.Client(api_key=gemini_api_key)
+
+# チャット履歴を初期化
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# 過去のチャットを表示
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# ユーザーの入力
+if prompt := st.chat_input("メッセージを入力してください"):
+
+    # ユーザーのメッセージを保存・表示
+    st.session_state.messages.append(
+        {"role": "user", "content": prompt}
     )
 
-else:
-    # Geminiクライアントを作成
-    client = genai.Client(api_key=gemini_api_key)
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-    # チャット履歴を初期化
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    # Gemini API に渡す会話履歴
+    contents = [
+        {
+            "role": (
+                "user" if m["role"] == "user" else "model"
+            ),
+            "parts": [{"text": m["content"]}],
+        }
+        for m in st.session_state.messages
+    ]
 
-    # 過去のチャットを表示
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # ユーザーの入力
-    if prompt := st.chat_input("メッセージを入力してください"):
-
-        # ユーザーのメッセージを保存・表示
-        st.session_state.messages.append(
-            {"role": "user", "content": prompt}
+    # Gemini から回答をストリーミング取得
+    try:
+        stream = client.models.generate_content_stream(
+            model="gemini-3.8-flash",
+            contents=contents,
         )
 
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            response = st.write_stream(
+                chunk.text
+                for chunk in stream
+                if chunk.text
+            )
 
-        # Gemini APIに渡す会話履歴
-        contents = [
+        # AI の回答を保存
+        st.session_state.messages.append(
             {
-                "role": (
-                    "user"
-                    if m["role"] == "user"
-                    else "model"
-                ),
-                "parts": [{"text": m["content"]}],
+                "role": "assistant",
+                "content": response,
             }
-            for m in st.session_state.messages
-        ]
+        )
 
-        # Geminiから回答をストリーミング取得
-        try:
-            stream = client.models.generate_content_stream(
-                model="gemini-3.8-flash",
-                contents=contents,
-            )
-
-            with st.chat_message("assistant"):
-                response = st.write_stream(
-                    chunk.text
-                    for chunk in stream
-                    if chunk.text
-                )
-
-            # AIの回答を保存
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": response,
-                }
-            )
-
-        except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
+    except Exception:
+        st.error(
+            "Gemini APIの呼び出し中にエラーが発生しました。"
+            "APIキー、モデル名、通信状況を確認してください。"
+        )
